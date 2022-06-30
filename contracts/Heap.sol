@@ -1,71 +1,93 @@
-pragma solidity 0.4.24;
+//SPDX-License-Identifier: GPL-3.0-or-later
+// Shoutout Zac Mitton! @VoltzRoad
+pragma solidity 0.8.x;
 
-// Eth Heap
-// Author: Zac Mitton
-// License: MIT
+library Heap {
 
-library Heap{ // default max-heap
+  struct Data {
+      Node[] nodes; // root is index 1; index 0 not used
+      mapping(uint256 => uint256) indices; // unique id => node index
+  }
+
+  struct Node {
+      uint256 tokenId;
+      int256 priority;
+  }
 
   uint constant ROOT_INDEX = 1;
 
-  struct Data{
-    int128 idCount;
-    Node[] nodes; // root is index 1; index 0 not used
-    mapping (int128 => uint) indices; // unique id => node index
-  }
-  struct Node{
-    int128 id; //use with another mapping to store arbitrary object types
-    int128 priority;
-  }
-
   //call init before anything else
   function init(Data storage self) internal{
-    if(self.nodes.length == 0) self.nodes.push(Node(0,0));
+    self.nodes.push(Node(0,0));
   }
 
-  function insert(Data storage self, int128 priority) internal returns(Node){//√
-    if(self.nodes.length == 0){ init(self); }// test on-the-fly-init
-    self.idCount++;
-    self.nodes.length++;
-    Node memory n = Node(self.idCount, priority);
+  function insert(Data storage self, int256 priority, uint256 tokenId) internal returns(Node memory) {
+    require(!isNode(getById(self, tokenId)), "exists already");
+
+    int256 minimize = priority * -1;
+
+    Node memory n = Node(tokenId, minimize);
+    
+    self.nodes.push(n);
     _bubbleUp(self, n, self.nodes.length-1);
+
     return n;
   }
-  function extractMax(Data storage self) internal returns(Node){//√
+
+  function extractMax(Data storage self) internal returns(Node memory){
     return _extract(self, ROOT_INDEX);
   }
-  function extractById(Data storage self, int128 id) internal returns(Node){//√
-    return _extract(self, self.indices[id]);
+
+  function extractById(Data storage self, uint256 tokenId) internal returns(Node memory){
+    return _extract(self, self.indices[tokenId]);
   }
 
   //view
-  function dump(Data storage self) internal view returns(Node[]){
-  //note: Empty set will return `[Node(0,0)]`. uninitialized will return `[]`.
+  function dump(Data storage self) internal view returns(Node[] memory){
+    //note: Empty set will return `[Node(0,0)]`. uninitialized will return `[]`.
     return self.nodes;
   }
-  function getById(Data storage self, int128 id) internal view returns(Node){
-    return getByIndex(self, self.indices[id]);//test that all these return the emptyNode
+
+  function getById(Data storage self, uint256 tokenId) internal view returns(Node memory){
+    return getByIndex(self, self.indices[tokenId]);//test that all these return the emptyNode
   }
-  function getByIndex(Data storage self, uint i) internal view returns(Node){
+
+  function getByIndex(Data storage self, uint256 i) internal view returns(Node memory){
     return self.nodes.length > i ? self.nodes[i] : Node(0,0);
   }
-  function getMax(Data storage self) internal view returns(Node){
-    return getByIndex(self, ROOT_INDEX);
+
+  function getFloorNode(Data storage self) internal view returns(Node memory){
+    Node memory node = getByIndex(self, ROOT_INDEX);
+    int256 priority = node.priority;
+    node.priority  = priority * -1;
+    return node;
   }
-  function size(Data storage self) internal view returns(uint){
+
+  function isFloor(Data storage self, uint256 tokenId) internal view returns(bool){
+    Node memory node00 = getByIndex(self, ROOT_INDEX);
+    Node memory node01 = getByIndex(self, self.indices[tokenId]);
+    return node00.tokenId == node01.tokenId;
+  }
+
+  function size(Data storage self) internal view returns(uint256){
     return self.nodes.length > 0 ? self.nodes.length-1 : 0;
   }
-  function isNode(Node n) internal pure returns(bool){ return n.id > 0; }
+  
+  function isNode(Node memory n) internal pure returns(bool){
+    return n.tokenId > 0;
+  }
 
   //private
-  function _extract(Data storage self, uint i) private returns(Node){//√
-    if(self.nodes.length <= i || i <= 0){ return Node(0,0); }
+  function _extract(Data storage self, uint256 i) private returns(Node memory){//√
+    if(self.nodes.length <= i || i <= 0){
+      return Node(0,0);
+    }
 
     Node memory extractedNode = self.nodes[i];
-    delete self.indices[extractedNode.id];
+    delete self.indices[extractedNode.tokenId];
 
     Node memory tailNode = self.nodes[self.nodes.length-1];
-    self.nodes.length--;
+    self.nodes.pop();
 
     if(i < self.nodes.length){ // if extracted node was not tail
       _bubbleUp(self, tailNode, i);
@@ -73,21 +95,23 @@ library Heap{ // default max-heap
     }
     return extractedNode;
   }
-  function _bubbleUp(Data storage self, Node memory n, uint i) private{//√
-    if(i==ROOT_INDEX || n.priority <= self.nodes[i/2].priority){
+
+  function _bubbleUp(Data storage self, Node memory n, uint256 i) private{//√
+    if(i == ROOT_INDEX || n.priority <= self.nodes[i/2].priority){
       _insert(self, n, i);
-    }else{
+    } else {
       _insert(self, self.nodes[i/2], i);
       _bubbleUp(self, n, i/2);
     }
   }
-  function _bubbleDown(Data storage self, Node memory n, uint i) private{//
-    uint length = self.nodes.length;
-    uint cIndex = i*2; // left child index
+
+  function _bubbleDown(Data storage self, Node memory n, uint256 i) private{//
+    uint256 length = self.nodes.length;
+    uint256 cIndex = i*2; // left child index
 
     if(length <= cIndex){
       _insert(self, n, i);
-    }else{
+    } else {
       Node memory largestChild = self.nodes[cIndex];
 
       if(length > cIndex+1 && self.nodes[cIndex+1].priority > largestChild.priority ){
@@ -96,15 +120,15 @@ library Heap{ // default max-heap
 
       if(largestChild.priority <= n.priority){ //TEST: priority 0 is valid! negative ints work
         _insert(self, n, i);
-      }else{
+      } else {
         _insert(self, largestChild, i);
         _bubbleDown(self, n, cIndex);
       }
     }
   }
 
-  function _insert(Data storage self, Node memory n, uint i) private{//√
+  function _insert(Data storage self, Node memory n, uint256 i) private{//√
     self.nodes[i] = n;
-    self.indices[n.id] = i;
+    self.indices[n.tokenId] = i;
   }
 }
